@@ -34,8 +34,12 @@ A fully automated farming bot for the popular Owo bot on Discord. This bot is de
    ```
 3. **Configure the bot**:
 
-   - Update the `.env` file with your Discord bot token and Owo bot configurations.
-   - Customize the bot's settings in `src/config.ts` as needed.
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Add your **Discord user account token** to `.env` — see [Getting your Discord user token](#getting-your-discord-user-token).
+   - Customize the bot's settings in `src/config/config.ts` as needed.
 
 4. **Build the bot**:
 
@@ -48,11 +52,28 @@ A fully automated farming bot for the popular Owo bot on Discord. This bot is de
    npm start
    ```
 
+## Getting your Discord user token
+
+OwoFarm logs in as **your Discord account**, not a bot application. You need a **user account token** — not a bot token from the [Discord Developer Portal](https://discord.com/developers/applications).
+
+> **Warning:** Your token is equivalent to your password. Never share it, commit it to git, or paste it into untrusted sites. If it is exposed, change your Discord password immediately to invalidate it.
+
+**Steps (browser):**
+
+1. Open [Discord in your browser](https://discord.com/app) and log in to the account you want to farm with.
+2. Open **Developer Tools** (`F12` or `Ctrl+Shift+I` on Windows/Linux, `Cmd+Option+I` on macOS).
+3. Go to the **Network** tab.
+4. Reload the page or switch channels so requests appear.
+5. In the filter box, type `api` and click any request to `discord.com/api/...`.
+6. Under **Request Headers**, find `authorization`. The value is your token (a long string; it is **not** prefixed with `Bot `).
+7. Copy that value into `.env`:
+   ```env
+   TOKEN="your_token_here"
+   ```
+
+For multiple accounts, separate tokens with commas: `TOKEN="token1,token2"`.
+
 ## Notes
 
 - Use this bot responsibly and at your own risk. Automating Discord bots can potentially violate Discord’s and Owo bot’s terms of service.
 - This project is meant for educational purposes only.
-
----
-
-This description provides a clear overview of the bot's purpose, features, setup instructions, and important disclaimers, ensuring potential users understand its functionality and risks involved.
