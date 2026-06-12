@@ -27,12 +27,12 @@ const config = {
       slots: 30000,
     },
     hunt: {
-      slowestTime: 50000,
-      fastestTime: 200000,
+      minDelay: 50000,
+      maxDelay: 200000,
     },
     battle: {
-      slowestTime: 50000,
-      fastestTime: 200000,
+      minDelay: 50000,
+      maxDelay: 200000,
     },
     inventory: 300000,
     checklist: 1000000,

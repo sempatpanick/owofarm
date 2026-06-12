@@ -511,8 +511,8 @@ class AutoFarm {
         this.autoHunt();
       },
       Math.floor(
-        Math.random() * (this.setting.interval.hunt.fastestTime - this.setting.interval.hunt.slowestTime + 1) +
-          this.setting.interval.hunt.slowestTime
+        Math.random() * (this.setting.interval.hunt.maxDelay - this.setting.interval.hunt.minDelay + 1) +
+          this.setting.interval.hunt.minDelay
       )
     );
   }
@@ -527,8 +527,8 @@ class AutoFarm {
         this.autoBattle();
       },
       Math.floor(
-        Math.random() * (this.setting.interval.battle.fastestTime - this.setting.interval.battle.slowestTime + 1) +
-          this.setting.interval.battle.slowestTime
+        Math.random() * (this.setting.interval.battle.maxDelay - this.setting.interval.battle.minDelay + 1) +
+          this.setting.interval.battle.minDelay
       )
     );
   }
