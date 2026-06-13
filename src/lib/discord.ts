@@ -223,9 +223,7 @@ class AutoFarm {
 
   private getNickname(): string {
     return (
-      this.client.guilds.cache
-        .map((guild) => guild.members.me?.nickname)
-        .find((nickname) => Boolean(nickname)) ||
+      this.client.guilds.cache.map((guild) => guild.members.me?.nickname).find((nickname) => Boolean(nickname)) ||
       this.client.user?.displayName ||
       this.client.user?.username ||
       ''
@@ -585,6 +583,27 @@ class AutoFarm {
     );
   }
 
+  private getActionDelay(type: 'hunt' | 'battle'): number {
+    const interval = this.setting.interval[type] as {
+      minDelay?: number;
+      maxDelay?: number;
+      slowestTime?: number;
+      fastestTime?: number;
+    };
+    const defaults = config.interval[type];
+
+    const minDelay = interval?.minDelay ?? interval?.slowestTime ?? defaults.minDelay;
+    const maxDelay = interval?.maxDelay ?? interval?.fastestTime ?? defaults.maxDelay;
+
+    if (!Number.isFinite(minDelay) || !Number.isFinite(maxDelay)) {
+      return defaults.minDelay;
+    }
+
+    const min = Math.min(minDelay, maxDelay);
+    const max = Math.max(minDelay, maxDelay);
+    return Math.floor(Math.random() * (max - min + 1) + min);
+  }
+
   async startAutoFarm(): Promise<void> {
     if (!this.botStatus) return this.logger.danger('Bot is not ready');
     this.autoInventory();
@@ -612,15 +631,9 @@ class AutoFarm {
     this.logger.info('Hunting');
     this.addMessage(this.setting.channels.hunt, this.randomPrefix(['hunt', 'h']));
     if (!this.botStatus) return;
-    this.timeoutId.hunt = setTimeout(
-      () => {
-        this.autoHunt();
-      },
-      Math.floor(
-        Math.random() * (this.setting.interval.hunt.maxDelay - this.setting.interval.hunt.minDelay + 1) +
-          this.setting.interval.hunt.minDelay
-      )
-    );
+    this.timeoutId.hunt = setTimeout(() => {
+      this.autoHunt();
+    }, this.getActionDelay('hunt'));
   }
 
   private async autoBattle(): Promise<void> {
@@ -628,15 +641,9 @@ class AutoFarm {
     this.logger.info('Battling');
     this.addMessage(this.setting.channels.hunt, this.randomPrefix(['battle', 'b']));
     if (!this.botStatus) return;
-    this.timeoutId.battle = setTimeout(
-      () => {
-        this.autoBattle();
-      },
-      Math.floor(
-        Math.random() * (this.setting.interval.battle.maxDelay - this.setting.interval.battle.minDelay + 1) +
-          this.setting.interval.battle.minDelay
-      )
-    );
+    this.timeoutId.battle = setTimeout(() => {
+      this.autoBattle();
+    }, this.getActionDelay('battle'));
   }
 
   private async autoZoo(): Promise<void> {

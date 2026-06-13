@@ -2,6 +2,27 @@ import fs from 'fs';
 import path from 'path';
 import config from '../config/config';
 
+const normalizeIntervalDelays = (currentConfig: Record<string, any>): boolean => {
+  let isChanged = false;
+
+  for (const key of ['hunt', 'battle'] as const) {
+    const interval = currentConfig.interval?.[key];
+    if (!interval || typeof interval !== 'object') continue;
+
+    if (interval.slowestTime != null && interval.minDelay == null) {
+      interval.minDelay = interval.slowestTime;
+      isChanged = true;
+    }
+
+    if (interval.fastestTime != null && interval.maxDelay == null) {
+      interval.maxDelay = interval.fastestTime;
+      isChanged = true;
+    }
+  }
+
+  return isChanged;
+};
+
 const checkAndWatchConfig = (name: string, callback: (config: any) => void): void => {
   const pathToConfig = path.join(__dirname, '..', '..', 'config', `${name}.json`);
 
@@ -30,6 +51,10 @@ const checkAndWatchConfig = (name: string, callback: (config: any) => void): voi
       }
     }
 
+    if (normalizeIntervalDelays(currentConfig)) {
+      isChanged = true;
+    }
+
     if (isChanged) {
       fs.writeFileSync(pathToConfig, JSON.stringify(currentConfig, null, 2));
     }
@@ -39,6 +64,9 @@ const checkAndWatchConfig = (name: string, callback: (config: any) => void): voi
       if (eventType === 'change') {
         try {
           const currentConfig = JSON.parse(fs.readFileSync(pathToConfig, 'utf-8'));
+          if (normalizeIntervalDelays(currentConfig)) {
+            fs.writeFileSync(pathToConfig, JSON.stringify(currentConfig, null, 2));
+          }
           callback(currentConfig);
         } catch (error: any) {
           console.error(`Error reading or parsing config file: ${error.message}`);
