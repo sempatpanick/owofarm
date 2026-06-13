@@ -53,6 +53,30 @@ const config = {
   },
   owoId: '408785106942164992',
   checklist_completed: false,
+  huntbot: {
+    enabled: false,
+    cashToSpend: 10000,
+    upgrader: {
+      enabled: true,
+      sleeptime: [10, 15] as [number, number],
+      traits: {
+        efficiency: true,
+        duration: true,
+        cost: true,
+        gain: true,
+        exp: true,
+        radar: true,
+      },
+      weights: {
+        efficiency: 4,
+        duration: 2,
+        cost: 5,
+        gain: 4,
+        exp: 3,
+        radar: 1,
+      },
+    },
+  },
 };
 
 export default config;

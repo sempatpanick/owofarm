@@ -6,7 +6,10 @@ import { superscriptToNumber } from '../tools/format';
 import { Items, Gems } from '../enums/items';
 import checkAndWatchConfig from '../tools/autoConfig';
 import { getOwoCaptchaUrl, solveOwoCaptcha } from '../tools/loginOwo';
-import openUrl from '../tools/openUrl';
+import { openIsolatedUrl } from '../tools/browser';
+import { acquireBrowserSlot, isBrowserQueueEnabled, releaseBrowserSlot } from '../tools/browserQueue';
+import { HuntbotIntegration } from './huntbotIntegration';
+import type { HuntbotSettings } from '../huntbot';
 
 class AutoFarm {
   private token: string = '';
@@ -43,6 +46,9 @@ class AutoFarm {
   private quest: { [key: string]: { status: boolean; progress: { current: number; total: number } } } = {};
   private captchaSolving = false;
   private captchaTimers: NodeJS.Timeout[] = [];
+  private farmPausedForHuntbot = false;
+  private huntbotInitialized = false;
+  private huntbot: HuntbotIntegration;
   private static readonly CAPTCHA_DEADLINE_MS = 10 * 60 * 1000;
 
   constructor(token: string) {
@@ -57,6 +63,18 @@ class AutoFarm {
       },
     });
     this.logger = new Logger();
+    this.huntbot = new HuntbotIntegration({
+      token: this.token,
+      huntChannelId: config.channels.hunt,
+      owoBotId: config.owoId,
+      getHuntbotSettings: () => this.getHuntbotSettings(),
+      getNickname: () => this.getNickname(),
+      randomPrefix: (commands) => this.randomPrefix(commands),
+      sendHuntbotMessage: (channelId, message) => this.sendMessage(channelId, message, true),
+      pauseFarmForHuntbot: () => this.pauseFarmForHuntbot(),
+      resumeFarmFromHuntbot: () => this.resumeFarmFromHuntbot(),
+      logger: this.logger,
+    });
     this.start();
   }
 
@@ -66,7 +84,22 @@ class AutoFarm {
     this.client.on('ready', async () => {
       this.logger.setID(this.client.user?.username as string);
       checkAndWatchConfig((this.client.user?.username as string) || 'default', (config) => {
-        if (config) (this.setting = config), this.logger.info('Config loaded');
+        if (config) {
+          this.setting = config;
+          this.huntbot = new HuntbotIntegration({
+            token: this.token,
+            huntChannelId: this.setting.channels.hunt,
+            owoBotId: this.setting.owoId,
+            getHuntbotSettings: () => this.getHuntbotSettings(),
+            getNickname: () => this.getNickname(),
+            randomPrefix: (commands) => this.randomPrefix(commands),
+            sendHuntbotMessage: (channelId, message) => this.sendMessage(channelId, message, true),
+            pauseFarmForHuntbot: () => this.pauseFarmForHuntbot(),
+            resumeFarmFromHuntbot: () => this.resumeFarmFromHuntbot(),
+            logger: this.logger,
+          });
+          this.logger.info('Config loaded');
+        }
       });
       this.logger.info(`Channels — hunt: ${this.setting.channels.hunt}, quest: ${this.setting.channels.quest}`);
 
@@ -165,7 +198,52 @@ class AutoFarm {
         message.embeds[0]?.author?.name?.match(questLogPattern)
       )
         this.handleQuest(message.embeds[0].description as string);
+
+      void this.huntbot.handleMessage({
+        channelId: message.channel.id,
+        authorId: message.author.id,
+        content: message.content,
+        embeds: message.embeds.map((embed) => ({
+          author: embed.author ? { name: embed.author.name ?? undefined } : undefined,
+          fields: embed.fields?.map((field) => ({
+            name: field.name,
+            value: field.value,
+          })),
+        })),
+        attachments: [...message.attachments.values()].map((attachment) => ({
+          url: attachment.url,
+        })),
+      });
     });
+  }
+
+  private getHuntbotSettings(): HuntbotSettings {
+    return this.setting.huntbot ?? config.huntbot;
+  }
+
+  private getNickname(): string {
+    return (
+      this.client.guilds.cache
+        .map((guild) => guild.members.me?.nickname)
+        .find((nickname) => Boolean(nickname)) ||
+      this.client.user?.displayName ||
+      this.client.user?.username ||
+      ''
+    );
+  }
+
+  private pauseFarmForHuntbot(): void {
+    this.farmPausedForHuntbot = true;
+    this.stopAutoFarm();
+  }
+
+  private resumeFarmFromHuntbot(): void {
+    if (!this.farmPausedForHuntbot || !this.botStatus) {
+      return;
+    }
+
+    this.farmPausedForHuntbot = false;
+    this.startAutoFarm();
   }
 
   private isOwoResponseForMe(message: Message, isMentioned: boolean, nicknameOrDisplayName?: string | null): boolean {
@@ -192,9 +270,16 @@ class AutoFarm {
     return false;
   }
 
+  private getProfileLabel(): string {
+    return this.client.user?.username || this.client.user?.id || this.token.slice(0, 12);
+  }
+
   private clearCaptchaTimers(): void {
     this.captchaTimers.forEach(clearTimeout);
     this.captchaTimers = [];
+    if (this.captchaSolving) {
+      releaseBrowserSlot(this.getProfileLabel());
+    }
     this.captchaSolving = false;
   }
 
@@ -227,6 +312,7 @@ class AutoFarm {
     this.captchaTimers.push(
       setTimeout(() => {
         if (!this.captchaSolving) return;
+        releaseBrowserSlot(this.getProfileLabel());
         this.logger.danger(
           'Captcha deadline reached — account may be banned. Solve manually if the page is still open.'
         );
@@ -235,9 +321,21 @@ class AutoFarm {
   }
 
   private async openCaptchaInBrowser(url: string): Promise<void> {
-    const opened = await openUrl(url);
+    const profileLabel = this.getProfileLabel();
+
+    if (isBrowserQueueEnabled()) {
+      this.logger.danger(`Waiting for captcha browser slot [${profileLabel}]...`);
+      await acquireBrowserSlot(profileLabel);
+      if (!this.captchaSolving) {
+        this.logger.info(`Captcha already solved — skipping browser open [${profileLabel}]`);
+        return;
+      }
+      this.logger.danger(`Captcha browser slot acquired [${profileLabel}]`);
+    }
+
+    const opened = await openIsolatedUrl(url, profileLabel);
     if (opened) {
-      this.logger.danger(`Opened captcha in browser: ${url}`);
+      this.logger.danger(`Opened captcha in isolated browser [${profileLabel}]: ${url}`);
       return;
     }
     this.logger.danger(`Could not open browser — solve manually: ${url}`);
@@ -250,8 +348,11 @@ class AutoFarm {
     this.captchaSolving = true;
     this.botStatus = false;
     this.botReady = false;
+    this.farmPausedForHuntbot = false;
+    this.huntbotInitialized = false;
     this.queue = [];
     this.stopProcessing();
+    this.huntbot.stop();
     this.stopAutoFarm();
 
     this.logger.danger('OwO captcha detected — ~10 minutes to solve or account may be banned');
@@ -455,8 +556,8 @@ class AutoFarm {
     }
   }
 
-  async sendMessage(channelId: string, message: string): Promise<void> {
-    if (!this.botStatus) return this.logger.danger('Bot is not ready');
+  async sendMessage(channelId: string, message: string, force = false): Promise<void> {
+    if (!force && !this.botStatus) return this.logger.danger('Bot is not ready');
 
     let channelToSend = this.client.channels.cache.get(channelId) as TextChannel | undefined;
     if (!channelToSend) {
@@ -493,6 +594,11 @@ class AutoFarm {
     if (this.setting.status.pray) this.autoPray();
     if (this.setting.status.curse) this.autoCurse();
     if (this.setting.status.zoo) this.autoZoo();
+
+    if (!this.huntbotInitialized && this.huntbot.enabled) {
+      this.huntbotInitialized = true;
+      void this.huntbot.start();
+    }
   }
 
   private sendCheckList(): void {
@@ -633,6 +739,10 @@ class AutoFarm {
       const key = id as keyof typeof this.timeoutId;
       if (this.timeoutId[key]) clearTimeout(this.timeoutId[key]);
       this.timeoutId[key] = 0 as unknown as NodeJS.Timeout;
+    }
+
+    if (!this.farmPausedForHuntbot) {
+      this.huntbot.stop();
     }
   }
 
