@@ -86,6 +86,7 @@ class AutoFarm {
       checkAndWatchConfig((this.client.user?.username as string) || 'default', (config) => {
         if (config) {
           this.setting = config;
+          this.huntbot.stop();
           this.huntbot = new HuntbotIntegration({
             token: this.token,
             huntChannelId: this.setting.channels.hunt,
@@ -98,7 +99,9 @@ class AutoFarm {
             resumeFarmFromHuntbot: () => this.resumeFarmFromHuntbot(),
             logger: this.logger,
           });
+          this.huntbotInitialized = false;
           this.logger.info('Config loaded');
+          this.syncHuntbotFromConfig();
         }
       });
       this.logger.info(`Channels — hunt: ${this.setting.channels.hunt}, quest: ${this.setting.channels.quest}`);
@@ -242,6 +245,26 @@ class AutoFarm {
 
     this.farmPausedForHuntbot = false;
     this.startAutoFarm();
+  }
+
+  private syncHuntbotFromConfig(): void {
+    if (!this.botStatus || !this.botReady) return;
+
+    if (this.huntbot.enabled) {
+      if (!this.huntbotInitialized) {
+        this.huntbotInitialized = true;
+        this.logger.info('Huntbot enabled — starting');
+        void this.huntbot.start();
+      }
+      return;
+    }
+
+    if (this.huntbotInitialized) {
+      this.huntbot.stop();
+      this.huntbotInitialized = false;
+      this.farmPausedForHuntbot = false;
+      this.logger.info('Huntbot disabled — stopped');
+    }
   }
 
   private isOwoResponseForMe(message: Message, isMentioned: boolean, nicknameOrDisplayName?: string | null): boolean {
@@ -604,20 +627,34 @@ class AutoFarm {
     return Math.floor(Math.random() * (max - min + 1) + min);
   }
 
+  private shouldRunManualHunt(): boolean {
+    return this.setting.status.hunt;
+  }
+
+  private shouldRunManualBattle(): boolean {
+    return this.setting.status.battle;
+  }
+
+  private stopFarmTimers(): void {
+    for (const id in this.timeoutId) {
+      const key = id as keyof typeof this.timeoutId;
+      if (this.timeoutId[key]) clearTimeout(this.timeoutId[key]);
+      this.timeoutId[key] = 0 as unknown as NodeJS.Timeout;
+    }
+  }
+
   async startAutoFarm(): Promise<void> {
     if (!this.botStatus) return this.logger.danger('Bot is not ready');
+    this.stopFarmTimers();
     this.autoInventory();
     this.autoQuest();
-    if (this.setting.status.hunt) this.autoHunt();
-    if (this.setting.status.battle) this.autoBattle();
-    if (this.setting.status.pray) this.autoPray();
+    if (this.shouldRunManualHunt()) this.autoHunt();
+    if (this.shouldRunManualBattle()) this.scheduleAutoBattle();
+    if (this.setting.status.pray) this.scheduleAutoPray();
     if (this.setting.status.curse) this.autoCurse();
     if (this.setting.status.zoo) this.autoZoo();
 
-    if (!this.huntbotInitialized && this.huntbot.enabled) {
-      this.huntbotInitialized = true;
-      void this.huntbot.start();
-    }
+    this.syncHuntbotFromConfig();
   }
 
   private sendCheckList(): void {
@@ -627,7 +664,7 @@ class AutoFarm {
   }
 
   private async autoHunt(): Promise<void> {
-    if (!this.botStatus) return;
+    if (!this.botStatus || !this.shouldRunManualHunt()) return;
     this.logger.info('Hunting');
     this.addMessage(this.setting.channels.hunt, this.randomPrefix(['hunt', 'h']));
     if (!this.botStatus) return;
@@ -637,13 +674,31 @@ class AutoFarm {
   }
 
   private async autoBattle(): Promise<void> {
-    if (!this.botStatus || !this.setting.status.battle) return;
+    if (!this.botStatus || !this.shouldRunManualBattle()) return;
     this.logger.info('Battling');
     this.addMessage(this.setting.channels.hunt, this.randomPrefix(['battle', 'b']));
     if (!this.botStatus) return;
     this.timeoutId.battle = setTimeout(() => {
       this.autoBattle();
     }, this.getActionDelay('battle'));
+  }
+
+  private scheduleAutoBattle(): void {
+    if (!this.botStatus || !this.shouldRunManualBattle()) return;
+
+    const offset = Math.floor(this.getActionDelay('battle') / 2);
+    this.timeoutId.battle = setTimeout(() => {
+      this.autoBattle();
+    }, offset);
+  }
+
+  private scheduleAutoPray(): void {
+    if (!this.botStatus || !this.setting.status.pray) return;
+
+    const offset = Math.floor(this.getActionDelay('hunt') / 3);
+    this.timeoutId.pray = setTimeout(() => {
+      this.autoPray();
+    }, offset);
   }
 
   private async autoZoo(): Promise<void> {
@@ -742,11 +797,7 @@ class AutoFarm {
 
   // Stop all auto farm
   stopAutoFarm(): void {
-    for (const id in this.timeoutId) {
-      const key = id as keyof typeof this.timeoutId;
-      if (this.timeoutId[key]) clearTimeout(this.timeoutId[key]);
-      this.timeoutId[key] = 0 as unknown as NodeJS.Timeout;
-    }
+    this.stopFarmTimers();
 
     if (!this.farmPausedForHuntbot) {
       this.huntbot.stop();

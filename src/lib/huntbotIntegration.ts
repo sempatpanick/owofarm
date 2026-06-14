@@ -127,6 +127,7 @@ export class HuntbotIntegration {
       return;
     }
 
+    this.host.logger.info('Huntbot starting');
     await this.ensureHandler().onLoad();
   }
 

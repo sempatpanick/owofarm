@@ -249,9 +249,7 @@ export class HuntbotHandler {
         });
       } else if (message.content.includes('Please include your password!')) {
         const resetMatch = message.content.match(PASSWORD_RESET_REGEX);
-        const totalSecondsHb = resetMatch
-          ? Number(resetMatch[1]) * 60
-          : this.cooldowns.briefCooldown;
+        const totalSecondsHb = resetMatch ? Number(resetMatch[1]) * 60 : this.cooldowns.briefCooldown;
 
         await this.bot.log(`huntbot stuck in password, retrying in ${totalSecondsHb}s`, '#afaf87');
         await this.sendAh({ timeToSleep: totalSecondsHb });
@@ -268,43 +266,42 @@ export class HuntbotHandler {
       }
 
       await this.bot.removeQueue({ id: 'huntbot' });
-      await this.bot.setStat(false);
 
-      if (embed.fields?.length) {
-        this.getExperience(embed);
-
-        const allocation = allocateEssence(this.upgradeDetails, this.settings.upgrader.weights);
-
-        await this.bot.sleep(getUpgraderCooldown(this.settings.upgrader.sleeptime));
-
-        for (const [trait, essenceAlloc] of Object.entries(allocation)) {
-            this.upgradeCmd.cmd_arguments = `${trait} ${essenceAlloc}`;
-
-            if (essenceAlloc > 0) {
-              await this.bot.putQueue(this.upgradeCmd, { priority: true });
-              await this.upgradeConfirmation();
-            }
-          }
-
-        await this.bot.setStat(true);
-
-        if (embed.fields.length > 8) {
-          const field = embed.fields[8];
-
-          if (field.name.includes('HUNTBOT is currently hunting!')) {
-            const totalSecondsHb = parseHuntbotDuration(field.value);
-            await this.bot.log(`huntbot will be back in ${totalSecondsHb}s`, '#afaf87');
-            await this.sendAh({ timeToSleep: totalSecondsHb });
-            continue;
-          }
-        }
-
-        await this.sendAh({
-          timeToSleep: this.cooldowns.briefCooldown,
-          noCashArg: false,
-        });
-        await this.bot.log('huntbot back! sending next huntbot command.', '#afaf87');
+      if (!embed.fields?.length) {
+        continue;
       }
+
+      this.getExperience(embed);
+
+      const allocation = allocateEssence(this.upgradeDetails, this.settings.upgrader.weights);
+
+      await this.bot.sleep(getUpgraderCooldown(this.settings.upgrader.sleeptime));
+
+      for (const [trait, essenceAlloc] of Object.entries(allocation)) {
+        this.upgradeCmd.cmd_arguments = `${trait} ${essenceAlloc}`;
+
+        if (essenceAlloc > 0) {
+          await this.bot.putQueue(this.upgradeCmd, { priority: true });
+          await this.upgradeConfirmation();
+        }
+      }
+
+      if (embed.fields.length > 8) {
+        const field = embed.fields[8];
+
+        if (field.name.includes('HUNTBOT is currently hunting!')) {
+          const totalSecondsHb = parseHuntbotDuration(field.value);
+          await this.bot.log(`huntbot will be back in ${totalSecondsHb}s`, '#afaf87');
+          await this.sendAh({ timeToSleep: totalSecondsHb });
+          continue;
+        }
+      }
+
+      await this.sendAh({
+        timeToSleep: this.cooldowns.briefCooldown,
+        noCashArg: false,
+      });
+      await this.bot.log('huntbot back! sending next huntbot command.', '#afaf87');
     }
   }
 }
